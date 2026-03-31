@@ -96,34 +96,46 @@ char sender_pseudo[LBUF];
         buf[nb_recv] = '\0';
         
         /* verification de l en-tete du protocole */
-        if (nb_recv >= 7 && (buf[0] == '1' || buf[0] == '2') && strncmp(buf + 1, "BEUIP", 5) == 0) {
-            sender_ip = ntohl(sock.sin_addr.s_addr);
-            strcpy(sender_pseudo, buf + 6);
+        if (nb_recv >= 6 && strncmp(buf + 1, "BEUIP", 5) == 0) {
             
-            /* verification des doublons dans la table */
-            known = 0;
-            for (i = 0; i < user_count; i++) {
-                if (table[i].ip == sender_ip && strcmp(table[i].pseudo, sender_pseudo) == 0) {
-                    known = 1;
-                    break;
+            /* cas code 3 : affichage de la table des couples */
+            if (buf[0] == '3') {
+                printf("\n--- liste des presents (%d) ---\n", user_count);
+                for (i = 0; i < user_count; i++) {
+                    printf("ip : %s | pseudo : %s\n", addrip(table[i].ip), table[i].pseudo);
                 }
+                printf("------------------------------\n");
             }
-            
-            /* enregistrement si nouvel utilisateur */
-            if (!known && user_count < MAX_USERS) {
-                table[user_count].ip = sender_ip;
-                strcpy(table[user_count].pseudo, sender_pseudo);
-                user_count++;
+            /* cas codes 1 ou 2 : gestion des utilisateurs */
+            else if (buf[0] == '1' || buf[0] == '2') {
+                sender_ip = ntohl(sock.sin_addr.s_addr);
+                strcpy(sender_pseudo, buf + 6);
+                
+                /* verification des doublons dans la table */
+                known = 0;
+                for (i = 0; i < user_count; i++) {
+                    if (table[i].ip == sender_ip && strcmp(table[i].pseudo, sender_pseudo) == 0) {
+                        known = 1;
+                        break;
+                    }
+                }
+                
+                /* enregistrement si nouvel utilisateur */
+                if (!known && user_count < MAX_USERS) {
+                    table[user_count].ip = sender_ip;
+                    strcpy(table[user_count].pseudo, sender_pseudo);
+                    user_count++;
 #ifdef TRACE
-                printf("nouveau contact : %s (%s)\n", sender_pseudo, addrip(sender_ip));
+                    printf("nouveau contact : %s (%s)\n", sender_pseudo, addrip(sender_ip));
 #endif
-            }
+                }
 
-            /* reponse par accuse de reception si broadcast recu */
-            if (buf[0] == '1') {
-                snprintf(msg_out, LBUF, "2BEUIP%s", p[1]);
-                if (sendto(sid, msg_out, strlen(msg_out), 0, (struct sockaddr *)&sock, ls) == -1) {
-                    perror("sendto ack");
+                /* reponse par accuse de reception si broadcast recu */
+                if (buf[0] == '1') {
+                    snprintf(msg_out, LBUF, "2BEUIP%s", p[1]);
+                    if (sendto(sid, msg_out, strlen(msg_out), 0, (struct sockaddr *)&sock, ls) == -1) {
+                        perror("sendto ack");
+                    }
                 }
             }
         }
