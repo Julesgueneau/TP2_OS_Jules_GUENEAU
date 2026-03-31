@@ -12,7 +12,7 @@
 
 #define HIST_FILE ".biceps_history"
 
-/* variable globale pour le serveur */
+/* stockage du pid du serveur beuip */
 pid_t pid_beuip = -1;
 
 /* generation du texte du prompt */
@@ -41,10 +41,14 @@ char* creer_prompt(void) {
     return prompt;
 }
 
-/* gestion de la sortie du programme */
+/* gestion de la sortie de biceps */
 int Sortie(int n, char *p[]) {
     write_history(HIST_FILE);
-    printf("fermeture de biceps. au revoir.\n");
+    /* si un serveur tourne encore, on le ferme */
+    if (pid_beuip != -1) {
+        kill(pid_beuip, SIGUSR1);
+        waitpid(pid_beuip, NULL, 0);
+    }
     exit(0);
     return 0;
 }
@@ -70,62 +74,77 @@ int CommandePWD(int n, char *p[]) {
 
 /* commande interne vers */
 int CommandeVERS(int n, char *p[]) {
-    printf("biceps version 2.0 - protocole beuip v1\n");
+    printf("biceps version 3.3 - gestion signaux beuip\n");
     return 1;
 }
 
-/* gestion des sous-commandes start et stop */
+/* gestion du protocole beuip (start/stop) */
 int CommandeBEUIP(int n, char *p[]) {
     if (n < 2) {
-        fprintf(stderr, "utilisation : beuip start pseudo | beuip stop\n");
+        fprintf(stderr, "usage : beuip start|stop|list|all|msg\n");
         return 1;
     }
 
-    /* cas du lancement */
     if (strcmp(p[1], "start") == 0) {
         if (n < 3) {
             fprintf(stderr, "erreur : pseudo manquant\n");
             return 1;
         }
         if (pid_beuip != -1) {
-            fprintf(stderr, "erreur : serveur deja actif (pid %d)\n", pid_beuip);
+            fprintf(stderr, "serveur deja actif\n");
             return 1;
         }
         pid_beuip = fork();
-        if (pid_beuip == -1) {
-            perror("fork");
-        } else if (pid_beuip == 0) {
+        if (pid_beuip == 0) {
             execl("./servbeuip", "servbeuip", p[2], NULL);
             perror("execl");
             exit(1);
-        } else {
-            printf("serveur beuip lance avec le pid %d\n", pid_beuip);
         }
     } 
-    /* cas de l arret */
     else if (strcmp(p[1], "stop") == 0) {
-        if (pid_beuip == -1) {
-            fprintf(stderr, "erreur : aucun serveur en cours d execution\n");
-            return 1;
-        }
-        /* envoi du signal d interruption au fils */
-        if (kill(pid_beuip, SIGINT) == 0) {
-            printf("signal d arret envoye au serveur (pid %d)\n", pid_beuip);
-            /* attente de la fin du processus pour eviter les zombies */
+        if (pid_beuip != -1) {
+            kill(pid_beuip, SIGUSR1);
             waitpid(pid_beuip, NULL, 0);
             pid_beuip = -1;
-        } else {
-            perror("kill");
+            printf("serveur arrete\n");
         }
     }
+    /* ajout des commandes de pilotage via clibeuip */
+    else if (strcmp(p[1], "list") == 0) {
+        /* le client attend : code donnee */
+        char *args[] = {"./clibeuip", "3", "presents", NULL};
+        if (fork() == 0) {
+            execv(args[0], args);
+            exit(1);
+        }
+        wait(NULL);
+    }
+    else if (strcmp(p[1], "all") == 0 && n >= 3) {
+        /* le client attend : code message */
+        char *args[] = {"./clibeuip", "5", p[2], NULL};
+        if (fork() == 0) {
+            execv(args[0], args);
+            exit(1);
+        }
+        wait(NULL);
+    }
+    else if (strcmp(p[1], "msg") == 0 && n >= 4) {
+        /* le client attend : code destinataire message */
+        char *args[] = {"./clibeuip", "4", p[2], p[3], NULL};
+        if (fork() == 0) {
+            execv(args[0], args);
+            exit(1);
+        }
+        wait(NULL);
+    }
     else {
-        fprintf(stderr, "sous-commande inconnue : %s\n", p[1]);
+        fprintf(stderr, "commande inconnue : %s\n", p[1]);
     }
     return 1;
 }
 
 
-/* enregistrement des commandes internes */
+/* table des commandes internes */
 void majComInt(void) {
     ajouteCom("exit", Sortie);
     ajouteCom("cd", CommandeCD);
@@ -157,14 +176,12 @@ int main(int argc, char *argv[]) {
             add_history(ligne);
             char* ptr_ligne = ligne;
             
-            /* decoupage par point virgule */
             while ((commande_isolee = strsep(&ptr_ligne, ";")) != NULL) {
                 if (*commande_isolee != '\0') {
                     char *cmds_pipe[MAXPAR];
                     int nb_pipe = 0;
                     char *ptr_pipe = commande_isolee;
                     
-                    /* decoupage par pipe */
                     while ((cmds_pipe[nb_pipe] = strsep(&ptr_pipe, "|")) != NULL) {
                         if (*cmds_pipe[nb_pipe] != '\0') nb_pipe++;
                     }
@@ -172,7 +189,6 @@ int main(int argc, char *argv[]) {
                     if (nb_pipe == 1) {
                         analyseCom(cmds_pipe[0]);
                         if (NMots > 0) {
-                            /* execution interne ou externe */
                             if (execComInt(NMots, Mots) == 0) {
                                 execComExt(Mots);
                             }

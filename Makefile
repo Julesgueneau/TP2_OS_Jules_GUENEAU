@@ -22,11 +22,11 @@ servbeuip: servbeuip.c creme.o
 clibeuip: clibeuip.c creme.o
 	$(CC) $(CFLAGS) -o clibeuip clibeuip.c creme.o
 
-# compilation de la bibliothèque reseau
+# compilation de la bibliotheque reseau
 creme.o: creme.c creme.h
 	$(CC) $(CFLAGS) -c creme.c
 
-# programmes udp de l'etape 1
+# programmes udp de l etape 1
 servudp: servudp.c
 	$(CC) $(CFLAGS) -o servudp servudp.c
 

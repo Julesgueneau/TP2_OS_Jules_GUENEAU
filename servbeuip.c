@@ -14,7 +14,6 @@
 #define LBUF 512
 #define MAX_USERS 255
 
-/* structure pour stocker les informations du reseau */
 struct user_info {
     unsigned long ip;
     char pseudo[LBUF];
@@ -33,7 +32,7 @@ static char b[16];
     return b;
 }
 
-/* routine d interruption pour le depart */
+/* routine d interruption pour le depart propre */
 void handler_stop(int sig) {
     struct sockaddr_in bcast_addr;
     char msg[LBUF];
@@ -42,14 +41,19 @@ void handler_stop(int sig) {
     bzero(&bcast_addr, sizeof(bcast_addr));
     bcast_addr.sin_family = AF_INET;
     bcast_addr.sin_port = htons(PORT);
+    /* adresse de diffusion par defaut */
     bcast_addr.sin_addr.s_addr = inet_addr("192.168.88.255");
 
     setsockopt(sid_global, SOL_SOCKET, SO_BROADCAST, &opt, sizeof(opt));
-    /* notification code 0 */
+    
+    /* notification de depart code 0 */
     snprintf(msg, LBUF, "0BEUIP%s", pseudo_global);
     sendto(sid_global, msg, strlen(msg), 0, (struct sockaddr *)&bcast_addr, sizeof(bcast_addr));
     
-    printf("\narret du serveur\n");
+#ifdef TRACE
+    printf("\narret du serveur beuip via signal %d\n", sig);
+#endif
+
     close(sid_global);
     exit(0);
 }
@@ -64,23 +68,25 @@ int opt = 1;
 unsigned long sender_ip;
 char sender_pseudo[LBUF];
 
-    /* verification argument */
+    /* verification des arguments */
     if (n != 2) {
         fprintf(stderr, "usage : %s pseudo\n", p[0]);
         return 1;
     }
 
     strcpy(pseudo_global, p[1]);
-    /* capture du signal ctrl+c */
-    signal(SIGINT, handler_stop);
 
-    /* creation socket */
+    /* gestion des signaux d arret */
+    signal(SIGINT, handler_stop);
+    signal(SIGUSR1, handler_stop);
+
+    /* initialisation socket udp */
     if ((sid_global = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) < 0) {
         perror("socket");
         return 2;
     }
 
-    /* configuration bind */
+    /* configuration de l adresse locale */
     bzero(&sock_conf, sizeof(sock_conf));
     sock_conf.sin_family = AF_INET;
     sock_conf.sin_port = htons(PORT);
@@ -91,13 +97,13 @@ char sender_pseudo[LBUF];
         return 3;
     }
 
-    /* mode broadcast */
+    /* activation du mode broadcast */
     if (setsockopt(sid_global, SOL_SOCKET, SO_BROADCAST, &opt, sizeof(opt)) < 0) {
         perror("setsockopt");
         return 4;
     }
 
-    /* annonce initiale */
+    /* envoi de l annonce initiale */
     bzero(&bcast_addr, sizeof(bcast_addr));
     bcast_addr.sin_family = AF_INET;
     bcast_addr.sin_port = htons(PORT);
@@ -107,9 +113,10 @@ char sender_pseudo[LBUF];
     sendto(sid_global, msg_out, strlen(msg_out), 0, (struct sockaddr *)&bcast_addr, sizeof(bcast_addr));
 
 #ifdef TRACE
-    printf("serveur %s en ligne\n", p[1]);
+    printf("serveur %s pret sur port %d\n", p[1], PORT);
 #endif
 
+    /* boucle principale de reception */
     for (;;) {
         ls = sizeof(sock);
         if ((nb_recv = recvfrom(sid_global, (void*)buf, LBUF, 0, (struct sockaddr *)&sock, &ls)) == -1) {
@@ -120,13 +127,13 @@ char sender_pseudo[LBUF];
         
         if (nb_recv >= 6 && strncmp(buf + 1, "BEUIP", 5) == 0) {
             
-            /* filtrage securite local */
+            /* filtrage loopback pour certaines commandes */
             if ((buf[0] == '3' || buf[0] == '4' || buf[0] == '5') && 
                 sock.sin_addr.s_addr != inet_addr("127.0.0.1")) {
                 continue;
             }
 
-            /* code 0 : suppression d un utilisateur */
+            /* traitement selon le type de message */
             if (buf[0] == '0') {
                 sender_ip = ntohl(sock.sin_addr.s_addr);
                 for (i = 0; i < user_count; i++) {
@@ -140,12 +147,10 @@ char sender_pseudo[LBUF];
                     }
                 }
             }
-            /* code 3 : liste des presents */
             else if (buf[0] == '3') {
                 printf("--- table des presents (%d) ---\n", user_count);
                 for (i = 0; i < user_count; i++) printf("%s : %s\n", table[i].pseudo, addrip(table[i].ip));
             }
-            /* code 4 : envoi message prive */
             else if (buf[0] == '4') {
                 char *dst = buf + 6;
                 char *txt = dst + strlen(dst) + 1;
@@ -160,7 +165,6 @@ char sender_pseudo[LBUF];
                     }
                 }
             }
-            /* code 5 : message a tous */
             else if (buf[0] == '5') {
                 for (i = 0; i < user_count; i++) {
                     if (strcmp(table[i].pseudo, pseudo_global) == 0) continue;
@@ -172,7 +176,6 @@ char sender_pseudo[LBUF];
                     sendto(sid_global, msg_out, strlen(msg_out), 0, (struct sockaddr *)&dest_sock, sizeof(dest_sock));
                 }
             }
-            /* code 9 : reception message prive */
             else if (buf[0] == '9') {
                 sender_ip = ntohl(sock.sin_addr.s_addr);
                 known = 0;
@@ -184,7 +187,6 @@ char sender_pseudo[LBUF];
                 }
                 if (!known) printf("message de %s (inconnu) : %s\n", addrip(sender_ip), buf + 6);
             }
-            /* codes 1 ou 2 : gestion des annonces */
             else if (buf[0] == '1' || buf[0] == '2') {
                 sender_ip = ntohl(sock.sin_addr.s_addr);
                 strcpy(sender_pseudo, buf + 6);
