@@ -1,21 +1,38 @@
-default : servudp cliudp servbeuip clibeuip
+# variables de compilation
+CC = cc
+CFLAGS = -Wall
+LDFLAGS = -lreadline
 
-# compilation de la librairie creme
-creme.o : creme.c creme.h
-	cc -Wall -c creme.c
+# cibles principales
+all: biceps servbeuip clibeuip servudp cliudp
 
-# mise a jour des cibles pour inclure l objet creme
-servbeuip : servbeuip.c creme.o
-	cc -Wall -DTRACE -o servbeuip servbeuip.c creme.o
+# regle pour compiler la gestion des commandes du tp precedent
+gescom.o : gescom.c gescom.h
+	cc -Wall -c gescom.c
 
-clibeuip : clibeuip.c creme.o
-	cc -Wall -o clibeuip clibeuip.c creme.o
+# programme principal biceps (lie gescom et creme)
+biceps: biceps.c creme.o gescom.o
+	$(CC) $(CFLAGS) -o biceps biceps.c creme.o gescom.o $(LDFLAGS)
 
-cliudp : cliudp.c
-	cc -Wall -o cliudp cliudp.c
+# serveur beuip (avec traces de debug activees)
+servbeuip: servbeuip.c creme.o
+	$(CC) $(CFLAGS) -DTRACE -o servbeuip servbeuip.c creme.o
 
-servudp : servudp.c
-	cc -Wall -o servudp servudp.c
+# client de pilotage beuip
+clibeuip: clibeuip.c creme.o
+	$(CC) $(CFLAGS) -o clibeuip clibeuip.c creme.o
 
-clean :
-	rm -f *.o cliudp servudp servbeuip clibeuip
+# compilation de la bibliothèque reseau
+creme.o: creme.c creme.h
+	$(CC) $(CFLAGS) -c creme.c
+
+# programmes udp de l'etape 1
+servudp: servudp.c
+	$(CC) $(CFLAGS) -o servudp servudp.c
+
+cliudp: cliudp.c
+	$(CC) $(CFLAGS) -o cliudp cliudp.c
+
+# nettoyage des fichiers objets et executables
+clean:
+	rm -f *.o biceps servbeuip clibeuip servudp cliudp
